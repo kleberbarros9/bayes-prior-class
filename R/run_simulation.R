@@ -1,0 +1,6 @@
+root<-Sys.getenv('AJS_PROJECT_ROOT');setwd(root)
+source(file.path(root,'R','simulation.R'))
+result<-run_qrog('execution')
+folder<-file.path(root,'results','simulation')
+for(nm in names(result))if(is.data.frame(result[[nm]]))write.csv(result[[nm]],file.path(folder,paste0(nm,'.csv')),row.names=FALSE)
+writeLines(capture.output(sessionInfo()),file.path(folder,'sessionInfo.txt'))

@@ -1,0 +1,38 @@
+#!/usr/bin/env Rscript
+source(file.path(dirname(sub('^--file=','',grep('^--file=',commandArgs(FALSE),value=TRUE)[1])),'pspline_common.R'))
+name<-commandArgs(TRUE)[1];z<-full_load(name);o<-full_read(file.path(z$path,'fit.rds'),z$key);if(is.null(o)||o$status!='complete')stop('Fit unavailable')
+f<-o$fit;p<-f$parameter_draws;d<-z$d;model<-z$m;years<-full_years(d)
+library(ggplot2);theme_set(theme_bw(base_size=11))
+out<-file.path(z$path,'figures');dir.create(out,showWarnings=FALSE)
+curves<-list();for(nm in full_names){path<-file.path(full_load(nm)$path,'survival_curve.csv');if(file.exists(path))curves[[nm]]<-read.csv(path,stringsAsFactors=FALSE)}
+cu<-do.call(rbind,curves);own<-curves[[name]];if(is.null(own))stop('Curves missing')
+km<-survival::survfit(survival::Surv(years,d$event)~1);kd<-data.frame(time_years=c(0,km$time),survival=c(1,km$surv),lower=c(1,km$lower),upper=c(1,km$upper));marks<-data.frame(time_years=km$time[km$n.censor>0],survival=km$surv[km$n.censor>0])
+g1<-ggplot()+geom_ribbon(data=kd,aes(time_years,ymin=lower,ymax=upper),fill='grey65',alpha=.25)+geom_ribbon(data=own,aes(time_years,ymin=lower,ymax=upper),fill='#0072B2',alpha=.18)+geom_line(data=cu[cu$model!=name,],aes(time_years,mean,color=model),linewidth=.55)+geom_step(data=kd,aes(time_years,survival,linetype='Kaplan-Meier'),color='black',linewidth=.75)+geom_line(data=own,aes(time_years,mean,color=model),linewidth=1.05)+geom_point(data=marks,aes(time_years,survival,shape='Censoring'),color='black',size=1.8)+scale_shape_manual(values=c(Censoring=3))+scale_linetype_manual(values=c('Kaplan-Meier'='dashed'))+labs(title=paste('Lung cancer survival:',name),x='Follow-up (years)',y='Survival probability',color='Model',linetype=NULL,shape=NULL,caption=paste('Curves average over observed age, sex and ECOG. Grey: KM 95% confidence band.\nBlue:',name,'pointwise 95% credible band; this is an exploratory selected analysis.'))+theme(legend.position='bottom',legend.text=element_text(size=8))+guides(color=guide_legend(ncol=3))
+v<-colMeans(p);pr<-survival_profile(v,model$family);eta<-as.numeric(d$X%*%v[paste0('beta[',seq_len(ncol(d$X)),']')]);tm<-d$model_time
+if(model$family==3L)logS<-pnorm((log(tm)+v['alpha']+eta)/pr$shape,lower.tail=FALSE,log.p=TRUE) else if(model$family==4L)logS<- -survival_softplus(pr$shape*(log(tm)+v['alpha']+eta)) else logS<- -exp(v['alpha']+eta)*survival_baseline(tm,pr,model$family)$H
+res<- -logS;rk<-survival::survfit(survival::Surv(res,d$event)~1);rd<-data.frame(residual=c(0,rk$time),survival=c(1,rk$surv));write.csv(data.frame(unit=seq_along(res),residual=res,event=d$event),file.path(z$path,'cox_snell_residuals.csv'),row.names=FALSE)
+ga<-ggplot(rd,aes(residual,survival))+geom_step(color='#0072B2')+stat_function(fun=function(x)exp(-x),linetype=2)+labs(title='A. Cox-Snell residual survival',x='Cox-Snell residual',y='Residual survival')
+con<-gzfile(file.path(z$path,'posterior_predictive.csv.gz'),'rt');pp<-read.csv(con);close(con)
+gb<-ggplot(pp,aes(deaths))+geom_histogram(bins=35,fill='#56B4E9',color='white')+geom_vline(xintercept=sum(d$event),linetype=2)+labs(title='B. Replicated death counts',x='Deaths',y='Replications')
+gc<-ggplot(pp,aes(followup_person_years))+geom_histogram(bins=35,fill='#56B4E9',color='white')+geom_vline(xintercept=sum(years),linetype=2)+labs(title='C. Replicated total follow-up',x='Total follow-up (person-years)',y='Replications')
+dp<-file.path(z$path,'delta_vs_Weibull.csv')
+if(file.exists(dp)){delta<-read.csv(dp);gd<-ggplot(delta,aes(unit,delta_ELPD))+geom_point(size=1,color='#0072B2')+geom_hline(yintercept=0,linetype=2)+labs(title='D. Pointwise ELPD difference',subtitle='Reference: Weibull-PH; positive favors displayed model',x='Patient',y='ELPD difference')} else gd<-ggplot()+annotate('text',x=0,y=0,label='Weibull-PH reference unavailable')+theme_void()
+danalysis_checks<-function(){grid::grid.newpage();grid::pushViewport(grid::viewport(layout=grid::grid.layout(2,2)));for(k in 1:4)print(list(ga,gb,gc,gd)[[k]],vp=grid::viewport(layout.pos.row=(k-1)%/%2+1,layout.pos.col=(k-1)%%2+1))}
+pdf(file.path(out,'figures_lung.pdf'),width=10,height=7.4);print(g1);danalysis_checks();dev.off()
+ggsave(file.path(out,'survival.pdf'),g1,width=9,height=6);ggsave(file.path(out,'survival.png'),g1,width=9,height=6,dpi=180)
+pdf(file.path(out,'checks.pdf'),width=10,height=7.4);danalysis_checks();dev.off();png(file.path(out,'checks.png'),width=1800,height=1332,res=180);danalysis_checks();dev.off()
+for(k in 1:4)ggsave(file.path(out,paste0('check_',LETTERS[k],'.pdf')),list(ga,gb,gc,gd)[[k]],width=5,height=3.7)
+# Trace and posterior density plots use thinned graphical data only; all draws
+# and full numeric diagnostics remain in the saved chains.
+ar<-f$chains;ii<-unique(round(seq(1,dim(ar)[1],length.out=min(1000,dim(ar)[1]))));cols<-intersect(dimnames(ar)[[3]],c('alpha','slope','log_tau','log_shape[1]',paste0('beta[',seq_len(ncol(d$X)),']')))
+tr<-list();for(par in cols)for(ch in 1:4)tr[[length(tr)+1]]<-data.frame(iteration=ii,chain=factor(ch),parameter=par,value=ar[ii,ch,par]);tr<-do.call(rbind,tr)
+gt<-ggplot(tr,aes(iteration,value,color=chain))+geom_line(linewidth=.2)+facet_wrap(~parameter,scales='free_y')+labs(title=paste('Post-warmup traces:',name));ggsave(file.path(out,'trace.pdf'),gt,width=10,height=6)
+gden<-ggplot(tr,aes(value,color=chain))+geom_density()+facet_wrap(~parameter,scales='free')+labs(title=paste('Posterior parameter densities:',name));ggsave(file.path(out,'parameter_densities.pdf'),gden,width=10,height=6)
+gpred<-ggplot(pp,aes(future_event_time_years))+geom_histogram(bins=80,fill='#56B4E9')+coord_cartesian(xlim=c(0,quantile(pp$future_event_time_years,.995)))+labs(title=paste('Latent event time for a future patient:',name),x='Event time (years)',y='Replications',caption='Empirical covariate distribution. Display limited at predictive 99.5th percentile; all values retained.');ggsave(file.path(out,'future_patient.pdf'),gpred,width=8,height=5)
+if(name%in%c('Quadratic-Weibull','QROG-Weibull','P-spline-PH')){
+ theta<-exp(p[,'alpha']);xx<-seq(max(1e-5,quantile(theta,.001)/4),max(quantile(theta,.999)*1.3,8),length.out=1001);prior<-exp(analysis_prior_alpha(log(xx),model$q))/xx
+ gg<-ggplot(data.frame(theta=theta),aes(theta))+geom_density(aes(color='Posterior'))+geom_line(data=data.frame(theta=xx,density=prior),aes(theta,density,color='Prior'))+labs(title=paste('Baseline cumulative hazard:',name),x='H0 at the fixed reference horizon',y='Density',color=NULL);ggsave(file.path(out,'prior_posterior_hazard.pdf'),gg,width=8,height=5)
+ stem<-if(name=='Quadratic-Weibull')'quadratic'else if(name=='P-spline-PH')'pspline'else'qrog';dest<-file.path(FULL_ROOT,'manuscript');dir.create(dest,showWarnings=FALSE);file.copy(file.path(out,'survival.pdf'),file.path(dest,paste0('figure4_survival_',stem,'.pdf')),overwrite=TRUE);file.copy(file.path(out,'checks.pdf'),file.path(dest,paste0('figure5_checks_',stem,'.pdf')),overwrite=TRUE)
+}
+writeLines(c('English labels retained for the manuscript.','Survival, predictive event times and total follow-up are expressed in years.','Cox-Snell residuals use posterior-mean model parameters; this is an in-sample diagnostic.','Predictive replication combines the event model with a stratified reverse-KM censoring approximation.','40,000 replicated cohorts and future-patient draws do not increase posterior effective sample size.','KM is a descriptive pooled reference; marginal interpretation depends on censoring assumptions.','Fitted curves use at most 8,000 evenly spaced posterior draws; all MCMC draws remain saved.'),file.path(out,'NOTES.txt'))
+full_json(list(status='complete',key=z$key),file.path(z$path,'figures_complete.json'));cat('FIGURES COMPLETE',name,'\n')

@@ -1,0 +1,8 @@
+.git
+results
+prepared
+exports
+.venv
+.Rlibrary
+models/*.rds
+__pycache__

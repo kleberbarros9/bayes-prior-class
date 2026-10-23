@@ -1,0 +1,6 @@
+# Frozen public data snapshots
+
+* `lung.csv`: all 228 original NCCTG records from `survival::lung`. `status=1` means censored and `status=2` means death. The workflow excludes the one missing ECOG record, retaining 227 patients and 164 deaths. The snapshot was exported from survival 3.5-8 and its analysis variables agree with the supplied final-analysis inputs; the original full runs recorded survival 3.8-3. Source: https://stat.ethz.ch/R-manual/R-devel/library/survival/html/lung.html . Original study: Loprinzi et al. (1994), JCO 12:601–607, doi:10.1200/JCO.1994.12.3.601.
+* `oncology_roever2022.csv`: the complete public `metadat::dat.roever2022` table, exported from the upstream R data object. The analysis fixes dose at 80 mg/m2 and requires exactly eight distinct study cohorts. Source: https://github.com/wviechtb/metadat/tree/master/data-raw (snapshot commit `0cb96ce4ff16586a9dbc8a9b0f9bc617538d2738`). Original input contains `study`, `year`, `dose`, `events`, `total`.
+
+Files are read locally. Model execution does not download datasets. The original numerical values and status coding are retained; centering and scaling are performed by the preparation code, not stored destructively in these source CSV files.

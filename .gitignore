@@ -1,0 +1,13 @@
+results/
+prepared/
+.Rlibrary/
+.venv/
+models/*.rds
+__pycache__/
+*.pyc
+*.log
+exports/
+*.pid
+.Rhistory
+.RData
+installed_R_packages.csv
